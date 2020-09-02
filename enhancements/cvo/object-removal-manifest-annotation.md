@@ -89,7 +89,7 @@ But with this approach unfinalized manifests may block the remainder of the curr
 
 The user is an OpenShift developer responsible for the development and maintenance of an OpenShift component.
 
-#### Story 1
+#### The autoscaler operator
 
 Remove the cluster-autoscaler-operator deployment.
 The existing cluster-autoscaler-operator deployment manifest 0000_50_cluster-autoscaler-operator_07_deployment.yaml is modified to contain the delete annotation:
@@ -106,44 +106,72 @@ metadata:
 ```
 Additional manifest properties such as `spec` may be set if convenient (e.g. because you are looking to make a minimal change vs. a previous version of the manifest), but those properties have no affect on manifests with the delete annotation.
 
-#### Story 2
+#### The service-catalog operators
 
 In release 4.5 two jobs, openshift-service-catalog-controller-manager-remover and openshift-service-catalog-apiserver-remover, were created to remove the Service Catalog.
 Now, for release 4.6, these jobs and all their supporting cluster objects must also be removed.
-This User Story shows how Service Catalog removal would have been executed had this enhancement been in place.
+This User Story shows how Service Catalog removal [would have been executed](#hypothetical-removal) had this enhancement been in place, and [will be completed](#actual-removal) given its current state in 4.5.
+
+##### Hypothetical removal
+
 The Service Catalog is composed of two components, the cluster-svcat-apiserver-operator and the cluster-svcat-controller-manager-operator.
 Each of these components use manifests for creation/update of the component's required resources: namespace, roles, operator deployment, etc.
-For example, the cluster-svcat-apiserver-operator has the following associated manifests:
-* 0000_50_cluster-svcat-apiserver-operator_00_namespace.yaml
-* 0000_50_cluster-svcat-apiserver-operator_02_config.crd.yaml
-* 0000_50_cluster-svcat-apiserver-operator_03_config.cr.yaml
-* 0000_50_cluster-svcat-apiserver-operator_03_configmap.yaml
-* 0000_50_cluster-svcat-apiserver-operator_03_version-configmap.yaml
-* 0000_50_cluster-svcat-apiserver-operator_04_roles.yaml
-* 0000_50_cluster-svcat-apiserver-operator_05_serviceaccount.yaml
-* 0000_50_cluster-svcat-apiserver-operator_06_service.yaml
-* 0000_50_cluster-svcat-apiserver-operator_07_deployment.yaml
-* 0000_50_cluster-svcat-apiserver-operator_08_cluster-operator.yaml
+The cluster-svcat-apiserver-operator had [the following associated manifests][svcat-apiserver-4.4-manifests]:
 
-Assuming all the above created resources are `namespace-scoped` and in the cluster-svcat-apiserver-operator namespace openshift-service-catalog-apiserver-operator, all could be deleted by simply deleting the namespace openshift-service-catalog-apiserver-operator.
-And, given this enhancement, the namespace delete would be done by adding the delete annotation to the manifest 0000_50_cluster-svcat-apiserver-operator_00_namespace.yaml.
+* `0000_50_cluster-svcat-apiserver-operator_00_namespace.yaml` containing the `openshift-service-catalog-apiserver-operator` namespace.
+    The deletion annotation would be added to this manifest.
+* `0000_50_cluster-svcat-apiserver-operator_02_config.crd.yaml` containing a cluster-scoped CRD.
+    The deletion annotation would be added to this manifest.
+* `0000_50_cluster-svcat-apiserver-operator_03_config.cr.yaml` containing a cluster-scoped, create-only ServiceCatalogAPIServer.
+    The deletion annotation would be added to this manifest.
+* `0000_50_cluster-svcat-apiserver-operator_03_configmap.yaml` containing a ConfigMap in the `openshift-service-catalog-apiserver-operator` namespace.
+    This manifest would be dropped, because the ConfigMap would be removed as part of the namespace deletion.
+* `0000_50_cluster-svcat-apiserver-operator_03_version-configmap.yaml` containing another ConfigMap in the `openshift-service-catalog-apiserver-operator` namespace.
+    This manifest would be dropped, because the ConfigMap would be removed as part of the namespace deletion.
+* `0000_50_cluster-svcat-apiserver-operator_04_roles.yaml` containing a cluster-scoped ClusterRoleBinding.
+    The deletion annotation would be added to this manifest.
+* `0000_50_cluster-svcat-apiserver-operator_05_serviceaccount.yaml` containing a ServiceAccount in the `openshift-service-catalog-apiserver-operator` namespace.
+    This manifest would be dropped, because the ServiceAccount would be removed as part of the namespace deletion.
+* `0000_50_cluster-svcat-apiserver-operator_06_service.yaml` containing a Service in the `openshift-service-catalog-apiserver-operator` namespace.
+    This manifest would be dropped, because the Service would be removed as part of the namespace deletion.
+* `0000_50_cluster-svcat-apiserver-operator_07_deployment.yaml` containing a Deployment in the `openshift-service-catalog-apiserver-operator` namespace.
+    This manifest would be dropped, because the Deployment would be removed as part of the namespace deletion.
+* `0000_50_cluster-svcat-apiserver-operator_08_cluster-operator.yaml` containing a cluster-scoped ClusterOperator.
+    The deletion annotation would be added to this manifest.
+* `0000_90_cluster-svcat-apiserver-operator_00_prometheusrole.yaml` containing a Role in the `openshift-service-catalog-apiserver-operator` namespace.
+    This manifest would be dropped, because the Role would be removed as part of the namespace deletion.
+* `0000_90_cluster-svcat-apiserver-operator_01_prometheusrolebinding.yaml` containing a RoleBinding in the `openshift-service-catalog-apiserver-operator` namespace.
+    This manifest would be dropped, because the RoleBinding would be removed as part of the namespace deletion.
+* `0000_90_cluster-svcat-apiserver-operator_02-operator-servicemonitor.yaml` containing a ServiceMonitor in the `openshift-service-catalog-apiserver-operator` namespace.
+    This manifest would be dropped, because the ServiceMonitor would be removed as part of the namespace deletion.
 
-If any `cluster-scoped` resources do exist or resources in another namespace exist, each would have to be deleted explicitly using the same method of adding the delete annotation to the relevant manifest.
-If multiple delete manifests are required it is up to the developer to name the manifests such that deletions occur in the correct order.
+So the remaining manifests with deletion annotations would be the namespace and the cluster-scoped CRD, ServiceCatalogAPIServer, ClusterRoleBinding, and ClusterOperator.
+The ordering of the surviving manifests would not be particularly important, although keeping the namespace first to avoid removing the ClusterRoleBinding while the consuming Deployment was still running.
+Although in the event of racing deletions, it's hard to see how a Deployment whose ClusterRoleBinding had been removed could get up to much trouble.
+However, in situations like this where multiple deletions are required, it is up to the developer to name the manifests such that deletions occur in the correct order.
+
+Similar handling would be required for the svcat-controller-manager operator.
 
 If resources external to kubernetes must be removed the developer must provide the means to do so.
 This is expected to be done through modification of an operator to do the removals during it's finalization.
 If operator modification for object removal is necessary that operator would be deleted in a subsequent update.
 This eliminates the need for new, possibly complex, CVO logic to handle both an update and a delete of the same object.
 
-Assuming that all Service Catalog resources can be deleted by deleting the relevant cluster-svcat-apiserver-operator and cluster-svcat-controller-manager-operator namespaces, to accomplish Service Catalog deletion release 4.5 would have the following Service Catalog related deletion manifests:
-* 0000_50_cluster-svcat-apiserver-operator_00_namespace.yaml
-* 0000_50_cluster-svcat-controller-manager-operator_00_namespace.yaml
-
-These two manifests would be removed from release 4.6.
-Subsequent 4.5.z releases could still contain these deletion manifests.
-CVO would process the manifests and, if the namespaces had already been removed, get an error, log a warning, and continue with the update.
+If this enhancement had been implemented in 4.5 with the deletion manifests proposed above, the deletion manifests would have been preserved through 4.5.z and removed in 4.6.
 See the [Upgrade / Downgrade Strategy](#upgrade--downgrade-strategy) section for details.
+
+##### Actual removal
+
+Because this enhancement was not implemented in 4.5, the cluster-svcat-apiserver-operator has [the following associated manifests][svcat-apiserver-4.5-manifests]:
+
+* `0000_50_cluster-svcat-apiserver-operator_00_namespace.yaml` containing the `openshift-service-catalog-removed` namespace.
+    The deletion annotation would be added to this manifest.
+* `0000_50_cluster-svcat-apiserver-operator_04_roles.yaml` containing a cluster-scoped ClusterRoleBinding.
+    The deletion annotation would be added to this manifest.
+* `0000_50_cluster-svcat-apiserver-operator_05_serviceaccount.yaml` containing a ServiceAccount in the `openshift-service-catalog-removed` namespace.
+    This manifest would be dropped, because the ServiceAccount would be removed as part of the namespace deletion.
+* `0000_90_cluster-svcat-apiserver-operator_01_remover_job.yaml` containing a Job in the `openshift-service-catalog-removed` namespace.
+    This manifest would be dropped, because the Job would be removed as part of the namespace deletion.
 
 ### Implementation Details/Notes/Constraints
 
@@ -194,3 +222,6 @@ The idea is to find the best form of an argument why this enhancement should _no
 ## Alternatives
 
 To be done
+
+[svcat-apiserver-4.4-manifests]: https://github.com/openshift/cluster-svcat-apiserver-operator/tree/aa7927fbfe8bf165c5b84167b7c3f5d9cb394e14/manifests
+[svcat-apiserver-4.5-manifests]: https://github.com/openshift/cluster-svcat-apiserver-operator/tree/954e09cfca522e175a23cf57b00c2b634c1d49dc/manifests
