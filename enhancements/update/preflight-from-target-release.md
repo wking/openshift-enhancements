@@ -1,65 +1,25 @@
 ---
-title: neat-enhancement-idea
+title: preflight-from-target-release
 authors:
-  - TBD
+  - "@wking"
+  - "@fao89"
 reviewers: # Include a comment about what domain expertise a reviewer is expected to bring and what area of the enhancement you expect them to focus on. For example: - "@networkguru, for networking aspects, please look at IP bootstrapping aspect"
-  - TBD
+  - "@hongkailiu, for accepted risks integration and conditional update aspects"
 approvers: # This should be a single approver. The role of the approver is to raise important questions, ensure the enhancement receives reviews from all applicable areas/SMEs, and determine when consensus is achieved such that the EP can move forward to implementation.  Having multiple approvers makes it difficult to determine who is responsible for the actual approval. Team leads and staff engineers often make good approvers.
   - TBD
 api-approvers: # In case of new or modified APIs or API extensions (CRDs, aggregated apiservers, webhooks, finalizers). If there is no API change, use "None". Once your EP is published, ask in #forum-api-review to be assigned an API approver.
   - TBD
-creation-date: yyyy-mm-dd
-last-updated: yyyy-mm-dd
-status: provisional|implementable|implemented|deferred|rejected|withdrawn|replaced|informational
+creation-date: 2026-01-14
+last-updated: 2026-01-15
+status: provisional
 tracking-link: # link to the tracking ticket (for example: Jira Feature or Epic ticket) that corresponds to this enhancement
   - TBD
 see-also:
-  - "/enhancements/this-other-neat-thing.md"
+  - "/enhancements/update/accepted-risks.md"
 replaces:
-  - "/enhancements/that-less-than-great-idea.md"
 superseded-by:
-  - "/enhancements/our-past-effort.md"
 ---
 
-About the enhancement process:
-1. **Iterate.** Some sections of the enhancement do not make sense to fill out in the first pass.
-   We expect enhancements to be merged with enough detail to implement tech preview, and be updated later
-   ahead of promoting to GA.
-1. **Build consensus.** The enhancement process is a way to build consensus between multiple stakeholders
-   and align on the design before implementation begins. It is the responsibility of the author to drive
-   the process. This means that you must find stakeholders, request their review, and work with them to
-   address their concerns and get their approval. If you need help finding stakeholders, try asking in
-   #forum-ocp-arch or taking your proposal to the OCP arch call or a staff engineer.
-1. **Document decisions.** The enhancements act as our record of previous conversations and the decisions
-   that were made. It is important that these EPs are merged so that we can build a library of references
-   for future engineers/technical writers/support engineers to be able to understand the history of our
-   designs and the rationale behind them.
-   **Please find the time to make sure that these PRs are merged.** If you are struggling to reach consensus,
-   or you are not getting the reviews you need, please reach out to a staff engineer or your team lead to help you.
-
-To get started with this template:
-1. **Pick a domain.** Find the appropriate domain to discuss your enhancement.
-1. **Make a copy of this template.** Copy this template into the directory for
-   the domain.
-1. **Fill out the metadata at the top.** The embedded YAML document is
-   checked by the linter.
-1. **Fill out the "overview" sections.** This includes the Summary and
-   Motivation sections. These should be easy and explain why the community
-   should desire this enhancement.
-1. **Create a PR.** Assign it to folks with expertise in that domain to help
-   sponsor the process.
-1. **Merge after reaching consensus.** Merge when there is consensus
-   that the design is complete enough for implementation to begin.
-   It is ok to have some details missing, these should be captured in the open questions.
-   Come back and update the document if important details (API field names, workflow, etc.)
-   change during implementation.
-1. **Keep all required headers.** If a section does not apply to an
-   enhancement, explain why but do not remove the section. This part
-   of the process is enforced by the linter CI job.
-
-See ../README.md for background behind these instructions.
-
-Start by filling out the header with the metadata for this enhancement.
 
 # Preflight checks from target release
 
@@ -69,35 +29,69 @@ Give cluster administrators a way to run preflight checks from a target release 
 
 ## Motivation
 
-TODO: copy some context from Lala's enhancement.
+The existing cluster update validation mechanisms have limitations that this enhancement addresses:
 
-With skip-level updates on the horizon (TODO: link KEP), the existing `Upgradeable` tooling does not allow a 5.0 cluster to distiguish between risks for updating to 5.1 and risks for updating skip-level directly to 5.2.
+1. **Skip-level update challenges**: With skip-level updates on the horizon [KEP-4330](https://github.com/kubernetes/enhancements/tree/master/keps/sig-architecture/4330-compatibility-versions), the existing `Upgradeable` tooling does not allow a 5.0 cluster to distinguish between risks for updating to 5.1 and risks for updating skip-level directly to 5.2.
 This preflight enhancement would allow that 5.0 cluster to run checks from the 5.2.z target release to report about any concerns that target release had with the current version's state.
+
+2. **Component maintainer workflow**: Previously explored in [PR #363](https://github.com/openshift/enhancements/pull/363), operators needed complex backporting strategies to warn about future incompatibilities. This approach allows components to define compatibility checks in their target release rather than backporting knowledge to previous versions.
+
+This preflight enhancement allows clusters to run compatibility checks from a target release without committing to the update, enabling administrators to understand and plan for potential issues before beginning an upgrade.
 
 ### User Stories
 
-#### As a cluster admin, ...
+#### As a cluster administrator operating a production OpenShift cluster
 
-TODO: checks for compatibility with future releases, without having to commit to updating.
+I want to proactively check compatibility with a target release without committing to an update, so that I can:
+- Assess risks for skip-level updates (e.g., from 4.14 directly to 4.16)
+- Plan maintenance windows based on known compatibility issues
+- Validate that my cluster configuration and workloads are compatible before scheduling an upgrade
+- Review specific risk names that can be accepted using the accepted-risks mechanism introduced in [accepted-risks](/enhancements/update/accepted-risks.md)
 
-#### As a component maintainer, ...
+#### As a component maintainer developing OpenShift operators
 
-TODO: ability to write checks for x.y compatibility in the x.y controller, instead of backporting those checks to previous releases.
-For example, the 5.2 controller knows what is coming in 5.2, and you don't have to backport that knowledge to 5.1 and 5.0 controllers.
+I want to write compatibility checks in my target release rather than backporting compatibility logic, so that I can:
+- Define what configurations from previous releases are incompatible with my new version
+- Leverage the latest understanding of compatibility requirements without backporting knowledge to older releases
+- Reduce the maintenance burden of keeping compatibility checks synchronized across multiple release branches
+- Focus compatibility validation logic in the release where breaking changes are introduced
+
+**Example**: A 5.2 networking operator can check if a 5.0 cluster's dual-stack configuration is compatible with 5.2's networking changes, without requiring the 5.0 operator to know about future 5.2 requirements.
+
+#### As a cluster lifecycle engineer
+
+I want to integrate preflight checks into automated update workflows, so that I can:
+- Run preflight validations as part of CI/CD pipelines before approving cluster updates
+- Generate reports on fleet-wide compatibility for upcoming releases
+- Implement automated update policies that only proceed when preflight checks pass
 
 ### Goals
 
-Summarize the specific goals of the proposal. How will we know that
-this has succeeded?  A good goal describes something a user wants from
-their perspective, and does not include the implementation details
-from the proposal.
+1. **Proactive risk assessment**: Enable cluster administrators to identify potential upgrade risks before committing to an update, particularly for skip-level upgrades. This aligns with upstream Kubernetes work on compatibility versions in [KEP-4330](https://github.com/kubernetes/enhancements/tree/master/keps/sig-architecture/4330-compatibility-versions).
+
+2. **Target release compatibility checks**: Allow components to define compatibility checks in their target release rather than requiring backports to previous releases.
+
+3. **Integration with accepted-risks workflow**: Results from preflight checks should integrate with the existing `conditionalUpdateRisks` and accepted-risks mechanism to provide a unified risk management experience.
+
+4. **Non-disruptive validation**: Preflight checks must be read-only operations that do not modify cluster state or affect running workloads.
+
+5. **Flexible execution model**: Support both one-time preflight validation and continuous preflight monitoring for target releases.
+
+Success criteria:
+- Administrators can run `oc adm upgrade preflight --to=<version>` to check compatibility
+- Preflight results appear in ClusterVersion status alongside other conditional update risks
+- Component maintainers can write forward-looking compatibility checks without backporting logic
 
 ### Non-Goals
 
-What is out of scope for this proposal? Listing non-goals helps to
-focus discussion and make progress. Highlight anything that is being
-deferred to a later phase of implementation that may call for its own
-enhancement.
+1. **Operator-level preflight framework**: This enhancement focuses on cluster-level preflight orchestration. Individual operator preflight implementations are out of scope (those would be developed separately by component teams).
+
+2. **Automatic remediation**: Preflight checks identify risks but do not automatically fix configuration issues. Remediation remains a manual administrative task.
+
+3. **Performance impact analysis**: This enhancement identifies compatibility risks but does not assess performance impact or resource consumption changes in target releases.
+
+4. **Rollback planning**: While preflight checks may identify upgrade risks, planning rollback strategies for failed upgrades is out of scope.
+
 
 ## Proposal
 
@@ -516,7 +510,7 @@ Describe how to
 
   Examples:
   - If the webhook is not running, kube-apiserver logs will show errors like "failed to call admission webhook xyz".
-  - Operator X will degrade with message "Failed to launch webhook server" and reason "WehhookServerFailed".
+  - Operator X will degrade with message "Failed to launch webhook server" and reason "WebhookServerFailed".
   - The metric `webhook_admission_duration_seconds("openpolicyagent-admission", "mutating", "put", "false")`
     will show >1s latency and alert `WebhookAdmissionLatencyHigh` will fire.
 
