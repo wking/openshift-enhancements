@@ -108,34 +108,53 @@ the document.
 
 ### Workflow Description
 
-Explain how the user will use the feature. Be detailed and explicit.
-Describe all of the actors, their roles, and the APIs or interfaces
-involved. Define a starting state and then list the steps that the
-user would need to go through to trigger the feature described in the
-enhancement. Optionally add a
-[mermaid](https://github.com/mermaid-js/mermaid#readme) sequence
-diagram.
+**Cluster Administrator** is responsible for managing OpenShift cluster updates and maintenance.
 
-Use sub-sections to explain variations, such as for error handling,
-failure recovery, or alternative outcomes.
+**Component Developer** writes OpenShift operators and defines compatibility checks for their components.
 
-For example:
+#### Requesting a Preflight Check
 
-**cluster creator** is a human user responsible for deploying a
-cluster.
+1. **Starting State**: A cluster administrator wants to evaluate risks for upgrading from version 4.20.0 to version 4.22.0 (skip-level upgrade) before scheduling a maintenance window.
 
-**application administrator** is a human user responsible for
-deploying an application in a cluster.
+2. **Request Preflight Check**: Administrator uses `oc` to request a preflight check:
+   ```bash
+   oc patch clusterversion version --type merge -p '{
+     "spec": {
+       "desiredUpdate": {
+         "mode": "Preflight",
+         "version": "4.22.0"
+       }
+     }
+   }'
+   ```
 
-1. The cluster creator sits down at their keyboard...
-2. ...
-3. The cluster creator sees that their cluster is ready to receive
-   applications, and gives the application administrator their
-   credentials.
+3. **CVO Processes Request**: The Cluster Version Operator detects the preflight request and:
+   - Retrieves the target release image (4.22.0)
+   - Launches target CVO with `--preflight` argument instead of performing an actual update
+   - Mounts current cluster state information for the target release to analyze
 
-See
-https://github.com/openshift/enhancements/blob/master/enhancements/workload-partitioning/management-workload-partitioning.md#high-level-end-to-end-workflow
-and https://github.com/openshift/enhancements/blob/master/enhancements/agent-installer/automated-workflow-for-agent-based-installer.md for more detailed examples.
+4. **Target Release Validation**: The target release CVO (4.22.0) runs in preflight mode:
+   - Examines current cluster configuration, operators, and workloads
+   - Executes compatibility checks defined by operators in the 4.22.0 release
+   - Generates risk assessment without modifying cluster state
+
+5. **Results Integration**: Preflight results are reported back to the running CVO and integrated into the ClusterVersion status:
+   ```yaml
+   status:
+     conditionalUpdateRisks:
+     - name: "DualStackIncompatible"
+       message: "Cluster uses dual-stack networking configuration incompatible with 4.22.0"
+       conditions:
+       - type: Preflight
+         status: True
+         reason: "PreflightValidation"
+         message: "Risk identified during preflight check for 4.22.0"
+   ```
+
+6. **Administrator Review**: Administrator reviews risks and can either:
+   - Address configuration issues before upgrading
+   - Accept specific risks using the established accepted-risks workflow
+   - Choose a different upgrade path
 
 ### API Extensions
 
