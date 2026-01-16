@@ -5,21 +5,20 @@ authors:
   - "@fao89"
 reviewers: # Include a comment about what domain expertise a reviewer is expected to bring and what area of the enhancement you expect them to focus on. For example: - "@networkguru, for networking aspects, please look at IP bootstrapping aspect"
   - "@hongkailiu, for accepted risks integration and conditional update aspects"
-approvers: # This should be a single approver. The role of the approver is to raise important questions, ensure the enhancement receives reviews from all applicable areas/SMEs, and determine when consensus is achieved such that the EP can move forward to implementation.  Having multiple approvers makes it difficult to determine who is responsible for the actual approval. Team leads and staff engineers often make good approvers.
-  - TBD
-api-approvers: # In case of new or modified APIs or API extensions (CRDs, aggregated apiservers, webhooks, finalizers). If there is no API change, use "None". Once your EP is published, ask in #forum-api-review to be assigned an API approver.
-  - TBD
+approvers:
+  - "@PratikMahajan"
+api-approvers:
+  - "@JoelSpeed"
 creation-date: 2026-01-14
-last-updated: 2026-01-15
+last-updated: 2026-01-16
 status: provisional
-tracking-link: # link to the tracking ticket (for example: Jira Feature or Epic ticket) that corresponds to this enhancement
-  - TBD
+tracking-link:
+  - https://issues.redhat.com/browse/OCPSTRAT-2843
 see-also:
   - "/enhancements/update/accepted-risks.md"
 replaces:
 superseded-by:
 ---
-
 
 # Preflight checks from target release
 
@@ -32,79 +31,76 @@ Give cluster administrators a way to run preflight checks from a target release 
 The existing cluster update validation mechanisms have limitations that this enhancement addresses:
 
 1. **Skip-level update challenges**: With skip-level updates on the horizon [KEP-4330](https://github.com/kubernetes/enhancements/tree/master/keps/sig-architecture/4330-compatibility-versions), the existing `Upgradeable` tooling does not allow a 5.0 cluster to distinguish between risks for updating to 5.1 and risks for updating skip-level directly to 5.2.
-This preflight enhancement would allow that 5.0 cluster to run checks from the 5.2.z target release to report about any concerns that target release had with the current version's state.
+    This preflight enhancement would allow that 5.0 cluster to run checks from the 5.2.z target release to report about any concerns that target release had with the current version's state.
+1. **Component maintainer workflow**: Previously explored in [PR #363](https://github.com/openshift/enhancements/pull/363), operators needed complex backporting strategies to warn about future incompatibilities.
+    This approach allows components to define compatibility checks in their target release rather than backporting knowledge to previous versions.
 
-2. **Component maintainer workflow**: Previously explored in [PR #363](https://github.com/openshift/enhancements/pull/363), operators needed complex backporting strategies to warn about future incompatibilities. This approach allows components to define compatibility checks in their target release rather than backporting knowledge to previous versions.
-
-This preflight enhancement allows clusters to run compatibility checks from a target release without committing to the update, enabling administrators to understand and plan for potential issues before beginning an upgrade.
+This preflight enhancement allows clusters to run compatibility checks from a target release without committing to the update, enabling administrators to understand and plan for potential issues before beginning an update.
 
 ### User Stories
 
 #### As a cluster administrator operating a production OpenShift cluster
 
 I want to proactively check compatibility with a target release without committing to an update, so that I can:
-- Assess risks for skip-level updates (e.g., from 4.14 directly to 4.16)
-- Plan maintenance windows based on known compatibility issues
-- Validate that my cluster configuration and workloads are compatible before scheduling an upgrade
-- Review specific risk names that can be accepted using the accepted-risks mechanism introduced in [accepted-risks](/enhancements/update/accepted-risks.md)
+- Assess risks for skip-level updates (e.g., from 5.0 directly to 5.2).
+- Validate that my cluster configuration and workloads are compatible before scheduling an update, optionally well before, so I have plenty of time to calmly address any detected issues.
+- Review specific risk names that can be accepted using the accepted-risks mechanism introduced in [accepted-risks](accepted-risks.md)
 
 #### As a component maintainer developing OpenShift operators
 
 I want to write compatibility checks in my target release rather than backporting compatibility logic, so that I can:
-- Define what configurations from previous releases are incompatible with my new version
-- Leverage the latest understanding of compatibility requirements without backporting knowledge to older releases
-- Reduce the maintenance burden of keeping compatibility checks synchronized across multiple release branches
-- Focus compatibility validation logic in the release where breaking changes are introduced
+- Define what configurations from previous releases are incompatible with my new version.
+- Leverage the latest understanding of compatibility requirements without backporting knowledge to older releases.
+- Reduce the maintenance burden of keeping compatibility checks synchronized across multiple release branches.
+- Focus compatibility validation logic in the release where breaking changes are introduced, which may include additional context like release manifest YAML that is not available in the older release.
 
 **Example**: A 5.2 networking operator can check if a 5.0 cluster's dual-stack configuration is compatible with 5.2's networking changes, without requiring the 5.0 operator to know about future 5.2 requirements.
 
 #### As a cluster lifecycle engineer
 
 I want to integrate preflight checks into automated update workflows, so that I can:
-- Run preflight validations as part of CI/CD pipelines before approving cluster updates
-- Generate reports on fleet-wide compatibility for upcoming releases
-- Implement automated update policies that only proceed when preflight checks pass
+- Run preflight validations as part of CI/CD pipelines before approving cluster updates.
+- Generate reports on fleet-wide compatibility for upcoming releases.
+- Implement automated update policies that only proceed when preflight checks pass.
 
 ### Goals
 
-1. **Proactive risk assessment**: Enable cluster administrators to identify potential upgrade risks before committing to an update, particularly for skip-level upgrades. This aligns with upstream Kubernetes work on compatibility versions in [KEP-4330](https://github.com/kubernetes/enhancements/tree/master/keps/sig-architecture/4330-compatibility-versions).
-
-2. **Target release compatibility checks**: Allow components to define compatibility checks in their target release rather than requiring backports to previous releases.
-
-3. **Integration with accepted-risks workflow**: Results from preflight checks should integrate with the existing `conditionalUpdateRisks` and accepted-risks mechanism to provide a unified risk management experience.
-
-4. **Non-disruptive validation**: Preflight checks must be read-only operations that do not modify cluster state or affect running workloads.
-
-5. **Flexible execution model**: Support both one-time preflight validation and continuous preflight monitoring for target releases.
+* **Proactive risk assessment**: Enable cluster administrators to identify potential update risks before committing to an update, particularly for skip-level updates.
+    This aligns with upstream Kubernetes work on compatibility versions in [KEP-4330](https://github.com/kubernetes/enhancements/tree/bb6bf298fdc524454b6fd477c84f5760b0f98c40/keps/sig-architecture/4330-compatibility-versions).
+* **Target release compatibility checks**: Allow components to define compatibility checks in their target release rather than requiring backports to previous releases.
+* **Integration with accepted-risks workflow**: Results from preflight checks should integrate with the existing `conditionalUpdateRisks` and accepted-risks mechanism to provide a unified risk management experience.
+* **Non-disruptive validation**: Preflight checks must be read-only operations that do not modify cluster state or affect running workloads.
+* **Flexible execution model**: Support both one-time preflight validation and continuous preflight monitoring for target releases.
 
 Success criteria:
-- Administrators can run `oc adm upgrade preflight --to=<version>` to check compatibility
-- Preflight results appear in ClusterVersion status alongside other conditional update risks
-- Component maintainers can write forward-looking compatibility checks without backporting logic
+- Administrators can run `oc adm upgrade --preflight --to=<version>` to check compatibility.
+- Preflight results appear in ClusterVersion `status` alongside other conditional update risks.
+- Component maintainers can write compatibility checks into the target release, without backporting logic to earlier releases.
 
 ### Non-Goals
 
-1. **Operator-level preflight framework**: This enhancement focuses on cluster-level preflight orchestration. Individual operator preflight implementations are out of scope (those would be developed separately by component teams).
-
-2. **Automatic remediation**: Preflight checks identify risks but do not automatically fix configuration issues. Remediation remains a manual administrative task.
-
-3. **Performance impact analysis**: This enhancement identifies compatibility risks but does not assess performance impact or resource consumption changes in target releases.
-
-4. **Rollback planning**: While preflight checks may identify upgrade risks, planning rollback strategies for failed upgrades is out of scope.
-
+* **Operator-level preflight framework**: This enhancement focuses on cluster-level preflight orchestration.
+    Individual operator preflight implementations are out of scope (those would be developed separately by component teams).
+    * For the initial enhancement, even the cluster-level interface between the target-release CVO and the target-release operators is out of scope.
+      We need rapid agreement on the interface between the user and the cluster-managing CVO, and between the cluster-managing CVO and the target-release CVO to set a solid launch pad in the initial release.
+      The details of the interface bewtween the target-release CVO and target-release operators can be deferred to the target release, and we have more time to plan that out.
+* **Automatic remediation**: Preflight checks identify risks but do not automatically fix configuration issues.
+    Remediation remains a manual administrative task.
+* **Performance impact analysis**: This enhancement identifies compatibility risks but does not assess performance impact or resource consumption changes in target releases.
+* **Rollback planning**: While preflight checks may identify update risks, planning rollback strategies for failed updates is out of scope.
+* **HyperShift** or **Web-console integration**: For the initial implementation, we will focus on standalone clusters, the API, and `oc`.
+    Integration with HyperShift and the in-cluster web console can happen in subsequent phases.
+* **External plugins**: This enhancement does not give cluster admins the ability to plug in additional checks specific to a given target version.
+    They retain the ability to:
+    * [Create `critical` platform alerts][create-platform-alert] which [existing checks will surface pre-update][recommend-critical-alert].
+    * [Create a custom ClusterOperator with an `Upgradeable=False` condition][ClusterOperator-Upgradeable] which existing logic will propagate through to major and minor updates (`Upgradeable` does not block patch updates from x.y.z to x.y.z' within the current z stream).
 
 ## Proposal
 
-The accepted-risks proposal TODO: link Hongkai's proposal added `clusterversion.status.conditionalUpdateRisks` to ClusterVersion to discuss risks that the cluster is concerned about.
+[The accepted-risks proposal](accepted-risks.md) added `clusterversion.status.conditionalUpdateRisks` to ClusterVersion to discuss risks that the cluster is concerned about.
 This gives us an existing location where we can discuss any concerns a preflight turns up.
 The remaining piece, proposed in this enhancement, is a way to request a preflight for a specific target release.
 We will add a new `mode` property to `spec.desiredUpdate` to mark preflight requests.
-
-To keep this section succinct, document the details like API field
-changes, new images, and other implementation details in the
-**Implementation Details** section and record the reasons for not
-choosing alternatives in the **Alternatives** section at the end of
-the document.
 
 ### Workflow Description
 
@@ -114,110 +110,37 @@ the document.
 
 #### Requesting a Preflight Check
 
-1. **Starting State**: A cluster administrator wants to evaluate risks for upgrading from version 4.20.0 to version 4.22.0 (skip-level upgrade) before scheduling a maintenance window.
-
-2. **Request Preflight Check**: Administrator uses `oc` to request a preflight check:
-   ```bash
-   oc patch clusterversion version --type merge -p '{
-     "spec": {
-       "desiredUpdate": {
-         "mode": "Preflight",
-         "version": "4.22.0"
-       }
-     }
-   }'
-   ```
-
-3. **CVO Processes Request**: The Cluster Version Operator detects the preflight request and:
-   - Retrieves the target release image (4.22.0)
-   - Launches target CVO with `--preflight` argument instead of performing an actual update
-   - Mounts current cluster state information for the target release to analyze
-
-4. **Target Release Validation**: The target release CVO (4.22.0) runs in preflight mode:
-   - Examines current cluster configuration, operators, and workloads
-   - Executes compatibility checks defined by operators in the 4.22.0 release
-   - Generates risk assessment without modifying cluster state
-
-5. **Results Integration**: Preflight results are reported back to the running CVO and integrated into the ClusterVersion status:
-   ```yaml
-   status:
-     conditionalUpdateRisks:
-     - name: "DualStackIncompatible"
-       message: "Cluster uses dual-stack networking configuration incompatible with 4.22.0"
-       conditions:
-       - type: Preflight
-         status: True
-         reason: "PreflightValidation"
-         message: "Risk identified during preflight check for 4.22.0"
-   ```
-
-6. **Administrator Review**: Administrator reviews risks and can either:
-   - Address configuration issues before upgrading
-   - Accept specific risks using the established accepted-risks workflow
-   - Choose a different upgrade path
+1. **Starting State**: A cluster administrator wants to evaluate risks for upgrading from version 4.22.0 to version 4.24.0 (skip-level update) before scheduling a maintenance window.
+1. **Request Preflight Check**: Administrator uses `oc` to request a preflight check: `oc adm upgrade --mode=preflight --to 4.24.0`.
+1. **CVO Processes Request**: The Cluster Version Operator detects the preflight request and:
+    - Launches target CVO as a Deployment with `preflight` argument, instead of performing an actual update.
+    - Uses a shared volume to share preflight results between the preflight CVO and the cluster-managing CVO.
+1. **Target Release Validation**: The target release CVO (4.24.0) runs in preflight mode:
+    - Examines current cluster configuration, operators, and workloads.
+    - Executes compatibility checks defined by operators in the 4.24.0 release.
+    - Generates risk assessment without modifying cluster state.
+1. **Results Integration**: Preflight results are reported back to the running CVO and integrated into the ClusterVersion status:
+    ```yaml
+    status:
+      conditionalUpdateRisks:
+      - name: "DualStackIncompatible"
+        message: "Cluster uses dual-stack networking configuration incompatible with 4.24.0."
+        conditions:
+        - type: Applies
+          status: True
+          reason: "PreflightValidation"
+          message: "Risk identified during preflight check for 4.24.0."
+    ```
+1. **Administrator Review**: Administrator reviews risks and can either:
+   - Address configuration issues before updating.
+   - Accept specific risks using [the established accepted-risks workflow](accepted-risks.md).
+   - Choose a different update path.
 
 ### API Extensions
 
-API Extensions are CRDs, admission and conversion webhooks, aggregated API servers,
-and finalizers, i.e. those mechanisms that change the OCP API surface and behaviour.
+#### ClusterVersion spec.desiredUpdate.mode
 
-- Name the API extensions this enhancement adds or modifies.
-- Does this enhancement modify the behaviour of existing resources, especially those owned
-  by other parties than the authoring team (including upstream resources), and, if yes, how?
-  Please add those other parties as reviewers to the enhancement.
-
-  Examples:
-  - Adds a finalizer to namespaces. Namespace cannot be deleted without our controller running.
-  - Restricts the label format for objects to X.
-  - Defaults field Y on object kind Z.
-
-For small API changes, you may want to model the API here as a Go type.
-For large API changes, give an idea of what the API will look like in serialized form as YAML,
-and open a PR for the actual API changes to the relevant repository. Your API approver
-should review the API both at the high level in this document, and lower level in the PR for
-the actual API changes.
-Including larger API changes in this document often creates duplication of effort where feedback
-is given twice, once here and once in the PR for the actual API changes.
-
-Fill in the operational impact of these API Extensions in the "Operational Aspects
-of API Extensions" section.
-
-### Topology Considerations
-
-#### Hypershift / Hosted Control Planes
-
-Are there any unique considerations for making this change work with
-Hypershift?
-
-See https://github.com/openshift/enhancements/blob/e044f84e9b2bafa600e6c24e35d226463c2308a5/enhancements/multi-arch/heterogeneous-architecture-clusters.md?plain=1#L282
-
-How does it affect any of the components running in the
-management cluster? How does it affect any components running split
-between the management cluster and guest cluster?
-
-#### Standalone Clusters
-
-Is the change relevant for standalone clusters?
-
-#### Single-node Deployments or MicroShift
-
-How does this proposal affect the resource consumption of a
-single-node OpenShift deployment (SNO), CPU and memory?
-
-How does this proposal affect MicroShift? For example, if the proposal
-adds configuration options through API resources, should any of those
-behaviors also be exposed to MicroShift admins through the
-configuration file for MicroShift?
-
-#### OpenShift Kubernetes Engine
-
-How does this proposal affect OpenShift Kubernetes Engine (OKE)?  Does it depend
-on features that are excluded from the OKE product offering?  See [the
-comparison of OKE and OCP in the product documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/latest/html/overview/oke-about#about_oke_similarities_and_differences).
-
-### Implementation Details/Notes/Constraints
-
-#### Requesting preflight checks
+The existing [ClusterVersion `spec.desiredUpdate` property][ClusterVersion-desiredUpdate] would have its [`Update` type][Update-API] extended with a new `mode` property:
 
 ```go
 // mode allows an update to be checked for compatibility without committing to updating the cluster.
@@ -238,29 +161,40 @@ spec:
     version: 5.2.0
 ```
 
-Benefit to this approach is that we can run the preflights continuously in a Deployment, and not a one-shot Pod.
-That allows us to avoid having to predict how long we think the one-shot results would be valid for.
+### Topology Considerations
 
-ALTERNATIVE
+#### Hypershift / Hosted Control Planes
 
-```go
-// preflight is an identifier for a preflight attempt...
-// +kubebuilder:validation:FIXME""
-// +optional
-preflight string `json:preflight,omitempty`
-```
+HyperShift is out of scope for now, as we rush to get something tech-preview for standalone.
+We'll come back later and figure out how this could fit into the HostedCluster APi.
 
-allowing preflight requests like:
+#### Standalone Clusters
 
-```yaml
-spec:
-  desiredUpdate:
-    preflight: some-ID-like-a-timestamp  Maybe require a timestamp?
-    version: 5.2.0
-```
+Yes, standalone is the focus.
+
+#### Single-node Deployments or MicroShift
+
+Single-node will have the same support as standalone.
+Running preflight checks will come with the usual resource cost of long-running workload.
+But cluster-admins have the ability to clear `desiredUpdate` if they want to stop running preflights, and they can enable or disable preflights as they see fit, to balance the cost vs. the benefit.
+
+MicroShift is out of scope, because it doesn't run a cluster-version operator.
+I'm not sure if MicroShift has a mechanism for checking for update compatibility or conditional update issues or not.
+
+#### OpenShift Kubernetes Engine
+
+This functionality will be implemented in component layers that are part of the OpenShift Kubernetes Engine (OKE), so it will function there the same way it does in OCP.
+
+### Implementation Details/Notes/Constraints
+
+#### Requesting preflight checks
+
+Cluster adminstrators can request preflight checks via [the new `mode` property](#clusterversion-spec-desiredupdate-mode).
+The `mode` property will also be wrapped in the existing `oc adm upgrade` command, so cluster administrators can use `oc adm upgrade --mode=preflight ...` to request preflight updates.
 
 #### Evaluating preflight checks
 
+FIXME
 When the cluster-version operator (CVO) sees a `mode: Preflight` request, it retrieves the target release pullspec in the usual way as for an update request.
 But instead of launching a `version-*` Pod to retrieve release manifests from the target release (FIXME: https://github.com/openshift/cluster-version-operator/blob/83243780aed4e0d9c4ebff528e54b918d4170fd3/pkg/cvo/updatepayload.go#L189-L297), it runs the target release with `args` set to `preflight`.
 This way, the old CVO doesn't need to understand the details of how to query components for preflight checks; that's all deferred to the target CVO.
@@ -290,10 +224,6 @@ Because they will be [propagated into `conditionalUpdateRisks`](#retrieving-pref
 When the preflight CVO Pod completes, the cluster's running CVO lifts those identified risks up into ClusterVersion's `status.conditionalUpdateRisks`, merging with risks detected via other mechanisms (the OpenShift Update Service, etc.).
 It also updates `status.conditionalUpdates` to set the preflight risk names in `status.conditionalUpdates([version==checkedVersion]).riskNames` for the version that was checked.
 
-Still to do:
-
-how to know when to launch another one?
-
 #### Retrieving preflight check results
 
 ```yaml
@@ -308,11 +238,6 @@ how to know when to launch another one?
       type: Applies
       reason: MatchingRule
       message: The matchingRules[0] matches
-      lastTransitionTime: 2021-09-13T17:03:05Z
-    - status: True  # always True?
-      type: Preflight
-      reason: FIXME
-      message: Results from preflight {ID} run {timestamp} (FIXME: live until {future timestamp}?).
       lastTransitionTime: 2021-09-13T17:03:05Z
 ```
 
@@ -343,10 +268,34 @@ burden?  Is it likely to be superceded by something else in the near future?
 
 ## Alternatives (Not Implemented)
 
-Similar to the `Drawbacks` section the `Alternatives` section is used
-to highlight and record other possible approaches to delivering the
-value proposed by an enhancement, including especially information
-about why the alternative was not selected.
+### One-shot checks
+
+FIXME: text
+
+```go
+// preflight is an identifier for a preflight attempt...
+// +kubebuilder:validation:FIXME""
+// +optional
+preflight string `json:preflight,omitempty`
+```
+
+allowing preflight requests like:
+
+```yaml
+spec:
+  desiredUpdate:
+    preflight: some-ID-like-a-timestamp  Maybe require a timestamp?
+    version: 5.2.0
+```
+
+FIXME: results
+
+    - status: True  # always True?
+      type: Preflight
+      reason: FIXME
+      message: Results from preflight {ID} run {timestamp} (FIXME: live until {future timestamp}?).
+      lastTransitionTime: 2021-09-13T17:03:05Z
+
 
 ## Open Questions [optional]
 
@@ -572,3 +521,9 @@ Describe how to
 
 Use this section if you need things from the project. Examples include a new
 subproject, repos requested, github details, and/or testing infrastructure.
+
+[ClusterOperator-Upgradeable]: https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/updating_clusters/understanding-openshift-updates-1#understanding_clusteroperator_conditiontypes_understanding-openshift-updates
+[ClusterVersion-desiredUpdate]: https://github.com/openshift/api/blob/6fb7fdae95fd20a36809d502cfc0e0459550d527/config/v1/types_cluster_version.go#L56-L81
+[create-platform-alert]: https://docs.redhat.com/en/documentation/monitoring_stack_for_red_hat_openshift/4.20/html/managing_alerts/managing-alerts-as-an-administrator#creating-new-alerting-rules_managing-alerts-as-an-administrator
+[recommend-critical-alert]: https://github.com/openshift/oc/blob/345800dc3c4164fbca313c1cbfb383f262547903/pkg/cli/admin/upgrade/recommend/alerts.go#L109-L124
+[Update-API]: https://github.com/openshift/api/blob/6fb7fdae95fd20a36809d502cfc0e0459550d527/config/v1/types_cluster_version.go#L704-L763
